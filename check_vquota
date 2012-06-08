@@ -1,0 +1,183 @@
+#!/bin/sh
+#
+# ## Plugin for Nagios to monitor the vpopmail quota
+# ## Written by Nobuyuki Furuyama
+#
+#
+# ## You are free to use this script under the terms of the Gnu Public License.
+# ## I make no guarantee as to whether this will harm anything, much less work
+# ## - use at your own risk.
+#
+#
+# Usage: ./check_vquota -w <warn> -c <crit> -D <domain name>
+#
+# ## Description:
+#
+# You most write path to vuserinfo.
+#
+# Get userlist and quota usage from vserinfo. [/home/vpopmail/bin/vuserinfo]
+#
+# To set suders
+# visudo add following lines
+#
+# nagios          ALL=(ALL)       NOPASSWD: /path/to/this/script
+#
+# eg.
+# Add this line to /usr/local/nagios/etc/nrpe.cfg .
+# command[check_vquota]=sudo /usr/local/nagios/libexec/check_vquota -w 90 -c 95
+#
+# ## Output:
+#
+# The plugin prints "ok" or either "warning" or "critical"
+#
+# Exit Codes
+# 0 OK
+# 1 Warning
+# 2 Critical
+# 3 Unknown  Invalid command line arguments or could not determine used space
+
+PROGNAME=`basename $0`
+VERSION="0.011"
+AUTHOR="(c) 2008 Nobukuki Furuyama"
+
+# settings
+VUSERINFO='/home/vpopmail/bin/vuserinfo'            # Input your path to vuserinfo
+
+# Exit codes
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+STATE_DEPENDENT=4
+
+# if [ ! -x $VUSERINFO ] ; then echo "You don't done $VUSERINFO" >&2 ; exit $STATE_UNKNOWN ; fi
+
+print_version() {
+    echo "$PROGNAME $VERSION $AUTHOR"
+    echo ""
+}
+
+print_usage() {
+    echo "Usage: $PROGNAME -w <warn> -c <crit> -D <domainname> [-h|--help] {-V|--version]"; echo ""
+    echo "  -h, --help"; echo "          print the help message and exit"
+    echo "  -V, --version"; echo "          print version and exit"
+     echo "  -D,"; echo "          Input The domain name"
+    echo "  -c,"; echo "          Input Critical value"; echo "          Inputs it by percent. c > w"
+    echo "  -w,"; echo "          Input Warning value";echo "          Inputs it by percent. c > w"
+}
+print_help() {
+    print_version
+    echo ""
+    echo "Plugin for Nagios to check vpopmail quota"
+    echo ""
+    print_usage
+    echo ""
+}
+
+exitstatus=$STATE_WARNING #default
+
+if [ -z "$1" ]
+then
+        print_usage
+        exit  $exitstatus
+fi
+
+# getopt
+TEMP=`getopt -o hVw:c:D: --long help,version -n 'check_vquota' -- "$@"`
+
+if [ $? != 0 ] ; then echo "Terminating..." >&2 ; exit $exitstatus ; fi
+
+# Note the quotes around `$TEMP': they are essential!
+eval set -- "$TEMP"
+
+while true ; do
+    case "$1" in
+        -h|--help)
+            print_help
+            shift
+            exit $STATE_OK ;;
+        -V|--version)
+            print_version
+            shift                               # If you don't get value "shift"
+            exit $STATE_OK ;;
+        -w)
+            warn=$2 ; shift 2 ;;                # If you get value "shift 2"
+        -c)
+            crit=$2 ; shift 2 ;;
+        -D)
+               DOMAIN=$2 ; shift 2 ;;
+          --)
+            shift ; break ;;
+       
+        *) echo "Internal error!" ; exit $exitstatus ;;
+    esac
+done
+for arg
+do
+        echo "Unkown option"; print_usage ; exit $exitstatus
+done
+
+OKUSERS=""
+WARNUSER=""
+CRITUSER=""
+PREVUSER=""
+
+USERLIST=`$VUSERINFO -D $DOMAIN | grep ^name: | sed -e "s/^.* //g"`
+
+# Value check
+if [ "$crit" -gt '100' ]; then
+        echo "crit=$crit ====> 0 < crit < 100"
+        exit $exitstatus
+fi
+if [ "$crit" -lt '0' ]; then
+        echo "crit=$crit ====> 0 < crit < 100"
+        exit $exitstatus
+fi
+if [ "$warn" -gt '100' ]; then
+        echo "warn=$warn ====> 0 < warn < 100"
+        exit $exitstatus
+fi
+if [ "$warn" -lt '0' ]; then
+        echo "warn=$warn ====> 0 < warn < 100"
+        exit $exitstatus
+fi
+if [ "$crit" -le "$warn" ]; then
+        echo "\$crit=$crit => warn =< crit"
+        exit $exitstatus
+fi
+# kokomade
+
+for USER in $USERLIST
+do
+          USAGE=`$VUSERINFO -Q "$USER@$DOMAIN" | sed -e "s/\%$//"`
+        if [ "$USAGE" -ge "$crit" ]
+            then
+                CRITUSER="$CRITUSER:$USER($USAGE%)"
+                continue
+        fi
+        if [ "$USAGE" -ge "$warn" ]
+                then
+                    WARNUSER="$WARNUSER:$USER($USAGE%)"
+                    continue
+        fi
+        if [ "$USAGE" -lt "$warn" ]
+                then
+                    OKUSERS="$OKUSERS:$USER($USAGE%)"
+                    continue
+        fi
+done
+if [ $CRITUSER ]; then
+    mesg="CRITICAL - W/$warn:C/$crit -"
+    exitstatus=$STATE_CRITICAL
+elif [ $WARNUSER ]; then
+    mesg="WARNING - W/$warn:C/$crit -"
+    exitstatus=$STATE_WARNING
+else
+    mesg="OK - W/$warn:C/$crit -"
+    exitstatus=$STATE_OK
+fi
+msgs="WARNUSER $WARNUSER / CRITUSER $CRITUSER \nOKUSERS $OKUSERS"
+echo -e "$mesg $msgs"
+exit $exitstatus
+#
+# # vim: autoindent number ts=4

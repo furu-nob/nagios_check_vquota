@@ -1,0 +1,15 @@
+$ cat /usr/local/nagios/etc/nrpe.cfg | grep check_vquota
+command[check_vquota_example_com]=sudo /usr/local/nagios/libexec/check_vquota -w 80 -c 90 -D example.com
+
+
+$ cat /usr/local/nagios/etc/oogaki/services.cfg
+# Define a service to check the vquota.
+    define service{
+    use               local-service ; Name of service template to use
+    host_name          example_host
+    service_description     Quota example.com
+    check_command     check_nrpe!check_vquota_example_com
+    notification_interval           720             ; Resend notification every 12 hours
+}
+
+
