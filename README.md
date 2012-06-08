@@ -1,2 +1,2 @@
-nagios_vquota
+nagios_check_vquota
 =============
